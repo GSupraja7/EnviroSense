@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EnviroSense — Station Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#0f1b1a;
+    --panel:#12211f;
+    --panel-2:#17302c;
+    --paper:#eef2ee;
+    --line:#2c4642;
+    --amber:#e8a13d;
+    --green:#6fb98f;
+    --red:#d16a5a;
+    --muted:#7fa39a;
+    --font-mono: 'Courier New', ui-monospace, monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:var(--font-sans);
+    min-height:100vh;
+  }
+  .frame{
+    max-width:980px;
+    margin:0 auto;
+    padding:32px 24px 60px;
+  }
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    border-bottom:1px solid var(--line);
+    padding-bottom:18px;
+    margin-bottom:28px;
+  }
+  .brand-eyebrow{
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:2px;
+    color:var(--muted);
+    text-transform:uppercase;
+    margin-bottom:6px;
+  }
+  h1{
+    font-size:28px;
+    margin:0;
+    font-weight:600;
+    letter-spacing:-0.02em;
+  }
+  .station-status{
+    text-align:right;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--muted);
+  }
+  .dot{
+    display:inline-block;
+    width:8px;height:8px;
+    border-radius:50%;
+    background:var(--green);
+    margin-right:6px;
+    box-shadow:0 0 8px var(--green);
+  }
+  .dot.alert{background:var(--red);box-shadow:0 0 8px var(--red);}
+
+  .readouts{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:16px;
+    margin-bottom:28px;
+  }
+  .readout{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:18px 20px;
+    position:relative;
+  }
+  .readout .label{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  .readout .value{
+    font-family:var(--font-mono);
+    font-size:38px;
+    font-weight:600;
+    line-height:1;
+  }
+  .readout .unit{
+    font-size:16px;
+    color:var(--muted);
+    margin-left:4px;
+  }
+  .readout.warn{border-color:var(--amber);}
+  .readout.warn .value{color:var(--amber);}
+
+  .chart-panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:20px;
+    margin-bottom:20px;
+  }
+  .chart-panel .label{
+    font-family:var(--font-mono);
+    font-size:10.5px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:14px;
+  }
+  canvas{max-height:220px;}
+
+  .log{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:16px 20px;
+    font-family:var(--font-mono);
+    font-size:12px;
+    color:var(--muted);
+    max-height:140px;
+    overflow-y:auto;
+  }
+  .log-line{padding:3px 0; border-bottom:1px dashed rgba(127,163,154,0.15);}
+  .log-line .t{color:var(--green);}
+  .log-line.alert .t{color:var(--red);}
+
+  .mode-toggle{
+    font-family:var(--font-mono);
+    font-size:11px;
+    color:var(--muted);
+    margin-top:20px;
+    text-align:center;
+    letter-spacing:0.5px;
+  }
+  .mode-toggle span{color:var(--amber);}
+
+  @media (max-width:640px){
+    .readouts{grid-template-columns:1fr;}
+    header{flex-direction:column;align-items:flex-start;gap:10px;}
+    .station-status{text-align:left;}
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div>
+      <div class="brand-eyebrow">EnviroSense · Station 01</div>
+      <h1>Environment Monitor</h1>
+    </div>
+    <div class="station-status">
+      <div><span class="dot" id="statusDot"></span><span id="statusText">Nominal</span></div>
+      <div id="lastUpdate">Last reading: —</div>
+    </div>
+  </header>
+
+  <div class="readouts">
+    <div class="readout" id="tempCard">
+      <div class="label">Temperature</div>
+      <div class="value" id="tempValue">--<span class="unit">°C</span></div>
+    </div>
+    <div class="readout" id="humidCard">
+      <div class="label">Humidity</div>
+      <div class="value" id="humidValue">--<span class="unit">%</span></div>
+    </div>
+    <div class="readout" id="uptimeCard">
+      <div class="label">Readings Logged</div>
+      <div class="value" id="uptimeValue">0</div>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="label">24-Point Trend</div>
+    <canvas id="trendChart"></canvas>
+  </div>
+
+  <div class="log" id="logPanel"></div>
+
+  <div class="mode-toggle">Running in <span>DEMO MODE</span> — simulated sensor stream. Swap fetchLatestReading() for a real Firebase call to go live.</div>
+</div>
+
+<script>
+// ============================================================
+// DATA SOURCE
+// ------------------------------------------------------------
+// This dashboard is wired to run in two modes:
+//
+// 1) DEMO MODE (active by default) — generates realistic simulated
+//    readings client-side, so you can show a working dashboard
+//    without hardware in front of you.
+//
+// 2) LIVE MODE — replace fetchLatestReading() below with a real
+//    call to your Firebase Realtime Database, e.g.:
+//
+//    async function fetchLatestReading() {
+//      const res = await fetch(
+//        "https://YOUR_PROJECT-default-rtdb.firebaseio.com/readings.json?orderBy=\"$key\"&limitToLast=1"
+//      );
+//      const data = await res.json();
+//      const latest = Object.values(data)[0];
+//      return { temperature: latest.temperature, humidity: latest.humidity, alert: latest.alert };
+//    }
+// ============================================================
+
+const TEMP_THRESHOLD = 35.0;
+const HUMIDITY_THRESHOLD = 80.0;
+
+let readingCount = 0;
+let simTemp = 24.5;
+let simHumidity = 55.0;
+
+function simulateReading() {
+  // random-walk the values so the demo looks like a real sensor, not noise
+  simTemp += (Math.random() - 0.48) * 1.2;
+  simHumidity += (Math.random() - 0.5) * 3;
+  simTemp = Math.max(18, Math.min(38, simTemp));
+  simHumidity = Math.max(30, Math.min(90, simHumidity));
+  return {
+    temperature: Math.round(simTemp * 10) / 10,
+    humidity: Math.round(simHumidity * 10) / 10,
+  };
+}
+
+async function fetchLatestReading() {
+  // DEMO MODE implementation — swap with the Firebase fetch shown above for live data
+  return simulateReading();
+}
+
+const ctx = document.getElementById('trendChart').getContext('2d');
+const trendChart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Temp (°C)',
+        data: [],
+        borderColor: '#e8a13d',
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+      },
+      {
+        label: 'Humidity (%)',
+        data: [],
+        borderColor: '#6fb98f',
+        backgroundColor: 'transparent',
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    animation: { duration: 300 },
+    scales: {
+      x: { ticks: { color: '#7fa39a', font: { size: 10 } }, grid: { color: 'rgba(44,70,66,0.5)' } },
+      y: { ticks: { color: '#7fa39a', font: { size: 10 } }, grid: { color: 'rgba(44,70,66,0.5)' } }
+    },
+    plugins: {
+      legend: { labels: { color: '#eef2ee', font: { size: 11 } } }
+    }
+  }
+});
+
+function logLine(text, isAlert) {
+  const panel = document.getElementById('logPanel');
+  const line = document.createElement('div');
+  line.className = 'log-line' + (isAlert ? ' alert' : '');
+  const time = new Date().toLocaleTimeString();
+  line.innerHTML = `<span class="t">[${time}]</span> ${text}`;
+  panel.prepend(line);
+  while (panel.children.length > 30) panel.removeChild(panel.lastChild);
+}
+
+async function pollReading() {
+  const reading = await fetchLatestReading();
+  const alert = reading.temperature > TEMP_THRESHOLD || reading.humidity > HUMIDITY_THRESHOLD;
+  readingCount++;
+
+  document.getElementById('tempValue').innerHTML = reading.temperature.toFixed(1) + '<span class="unit">°C</span>';
+  document.getElementById('humidValue').innerHTML = reading.humidity.toFixed(1) + '<span class="unit">%</span>';
+  document.getElementById('uptimeValue').textContent = readingCount;
+  document.getElementById('lastUpdate').textContent = 'Last reading: ' + new Date().toLocaleTimeString();
+
+  document.getElementById('tempCard').classList.toggle('warn', reading.temperature > TEMP_THRESHOLD);
+  document.getElementById('humidCard').classList.toggle('warn', reading.humidity > HUMIDITY_THRESHOLD);
+  document.getElementById('statusDot').classList.toggle('alert', alert);
+  document.getElementById('statusText').textContent = alert ? 'Threshold exceeded' : 'Nominal';
+
+  const label = new Date().toLocaleTimeString().slice(0,5);
+  trendChart.data.labels.push(label);
+  trendChart.data.datasets[0].data.push(reading.temperature);
+  trendChart.data.datasets[1].data.push(reading.humidity);
+  if (trendChart.data.labels.length > 24) {
+    trendChart.data.labels.shift();
+    trendChart.data.datasets[0].data.shift();
+    trendChart.data.datasets[1].data.shift();
+  }
+  trendChart.update();
+
+  logLine(
+    `Temp ${reading.temperature.toFixed(1)}°C · Humidity ${reading.humidity.toFixed(1)}%` + (alert ? ' — ALERT threshold exceeded' : ' — reading nominal'),
+    alert
+  );
+}
+
+pollReading();
+setInterval(pollReading, 3000);
+</script>
+</body>
+</html>
